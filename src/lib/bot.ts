@@ -116,6 +116,29 @@ function formatDuration(seconds: number): string {
   return `${seconds}s`;
 }
 
+function formatClock(iso: string, lang: Lang): string {
+  return new Date(iso).toLocaleTimeString(lang === "fr" ? "fr-FR" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getWorkoutDurationSeconds(workout: Workout): number | null {
+  const startedAt = workout.startedAt ?? workout.createdAt;
+  if (!startedAt || !workout.endedAt) return null;
+
+  const seconds = Math.round((new Date(workout.endedAt).getTime() - new Date(startedAt).getTime()) / 1000);
+  return seconds > 0 ? seconds : null;
+}
+
+function getMedian(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
 function formatSets(sets: SetEntry[], mode: ExerciseMode = "weight"): string {
   return sets.map((s, i) => {
     if (mode === "time") return `  ${i + 1}. ${formatDuration(s.weight)}`;
@@ -200,15 +223,17 @@ async function handleTypeSelection(chatId: number, messageId: number, userId: st
 
   const today = new Date().toISOString().split("T")[0];
   const allWorkouts = await getAllWorkouts(userId);
-  let workout = allWorkouts.find((w) => w.date === today && w.type === templateId);
+  let workout = allWorkouts.find((w) => w.date === today && w.type === templateId && !w.endedAt);
 
   if (!workout) {
+    const now = new Date().toISOString();
     workout = {
       id: crypto.randomUUID(),
       date: today,
       type: templateId as Workout["type"],
       exercises: [],
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      startedAt: now,
     };
     await saveWorkout(workout, userId);
   }
@@ -302,8 +327,24 @@ async function handleDone(chatId: number, messageId: number, userId: string) {
 
   const templates = await getTemplates(userId);
   const template = getTemplateById(templates, workout.type);
+  const startedAt = workout.startedAt ?? workout.createdAt;
+  const endedAt = workout.endedAt ?? new Date().toISOString();
 
-  let summary = `✅ <b>${t("workout_done", l)} ${template?.name || workout.type.toUpperCase()} ${t("done_suffix", l)}</b>\n📅 ${workout.date}\n\n`;
+  if (!workout.endedAt || !workout.startedAt) {
+    workout.startedAt = startedAt;
+    workout.endedAt = endedAt;
+    await saveWorkout(workout, userId);
+  }
+
+  const durationSeconds = getWorkoutDurationSeconds({ ...workout, startedAt, endedAt });
+
+  let summary = `✅ <b>${t("workout_done", l)} ${template?.name || workout.type.toUpperCase()} ${t("done_suffix", l)}</b>\n📅 ${workout.date}\n`;
+  summary += `🕒 ${t("started_at", l)} : ${formatClock(startedAt, l)}\n`;
+  summary += `🏁 ${t("ended_at", l)} : ${formatClock(endedAt, l)}\n`;
+  if (durationSeconds) {
+    summary += `⏱ ${t("duration", l)} : ${formatDuration(durationSeconds)}\n`;
+  }
+  summary += "\n";
 
   if (workout.exercises.length === 0) {
     summary += t("no_exercises", l);
@@ -342,6 +383,21 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
   let text = `📊 <b>${t("stats_title", l)}</b>\n\n`;
   text += `🏋️ ${t("total", l)} : <b>${recent.length}</b> ${t("sessions", l)}\n`;
 
+  const durations = recent
+    .map((workout) => getWorkoutDurationSeconds(workout))
+    .filter((duration): duration is number => duration !== null);
+
+  if (durations.length > 0) {
+    const average = Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length);
+    const median = getMedian(durations);
+    text += `⏱ ${t("average_duration", l)} : <b>${formatDuration(average)}</b>\n`;
+    if (median !== null) {
+      text += `📍 ${t("median_duration", l)} : <b>${formatDuration(median)}</b>\n`;
+    }
+  } else {
+    text += `⏱ ${t("duration", l)} : <i>${t("no_duration_data", l)}</i>\n`;
+  }
+
   // Count per template type
   for (const tmpl of templates) {
     const count = recent.filter((w) => w.type === tmpl.id).length;
@@ -373,6 +429,10 @@ async function handleHistory(chatId: number, messageId: number, userId: string) 
   for (const w of last5) {
     const tmpl = getTemplateById(templates, w.type);
     text += `\n${tmpl?.icon || "•"} <b>${w.date} — ${tmpl?.name || w.type}</b>\n`;
+    const duration = getWorkoutDurationSeconds(w);
+    if (duration) {
+      text += `  ⏱ ${t("duration", l)}: ${formatDuration(duration)}\n`;
+    }
     if (w.exercises.length === 0) {
       text += `  <i>${t("no_exercise_data", l)}</i>\n`;
     } else {
@@ -408,6 +468,17 @@ async function handleWorkoutDetail(chatId: number, messageId: number, userId: st
   const templates = await getTemplates(userId);
   const tmpl = getTemplateById(templates, workout.type);
   let text = `${tmpl?.icon || "•"} <b>${tmpl?.name || workout.type}</b> — ${workout.date}\n\n`;
+  const startedAt = workout.startedAt ?? workout.createdAt;
+  const duration = getWorkoutDurationSeconds(workout);
+
+  text += `🕒 ${t("started_at", l)} : ${formatClock(startedAt, l)}\n`;
+  if (workout.endedAt) {
+    text += `🏁 ${t("ended_at", l)} : ${formatClock(workout.endedAt, l)}\n`;
+  }
+  if (duration) {
+    text += `⏱ ${t("duration", l)} : ${formatDuration(duration)}\n`;
+  }
+  text += "\n";
 
   if (workout.exercises.length === 0) {
     text += `<i>${t("no_exercises", l)}</i>`;

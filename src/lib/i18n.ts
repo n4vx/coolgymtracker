@@ -32,6 +32,11 @@ const strings = {
   workout_done: { fr: "Séance", en: "Workout" },
   done_suffix: { fr: "terminée !", en: "completed!" },
   no_exercises: { fr: "Aucun exercice enregistré.", en: "No exercises recorded." },
+  duration: { fr: "Durée", en: "Duration" },
+  average_duration: { fr: "Durée moyenne", en: "Average duration" },
+  median_duration: { fr: "Durée médiane", en: "Median duration" },
+  started_at: { fr: "Début", en: "Start" },
+  ended_at: { fr: "Fin", en: "End" },
 
   // Stats
   stats_title: { fr: "Stats (30 derniers jours)", en: "Stats (last 30 days)" },
@@ -54,6 +59,7 @@ const strings = {
   not_enough_data: { fr: "Pas assez de données (min 2 séances).", en: "Not enough data (min 2 sessions)." },
   btn_other_exercise: { fr: "📈 Autre exercice", en: "📈 Other Exercise" },
   max_reps: { fr: "Max reps", en: "Max reps" },
+  no_duration_data: { fr: "Pas encore de données de durée.", en: "No duration data yet." },
 
   // Edit
   edit_title: { fr: "Éditer les séances", en: "Edit Workouts" },

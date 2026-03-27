@@ -16,6 +16,8 @@ export interface Workout {
   type: WorkoutType;
   exercises: ExerciseLog[];
   createdAt: string; // ISO timestamp
+  startedAt?: string; // ISO timestamp
+  endedAt?: string; // ISO timestamp
 }
 
 export interface Exercise {

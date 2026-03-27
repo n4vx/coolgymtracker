@@ -42,15 +42,12 @@ async function answerCallback(callbackQueryId: string) {
   await tg("answerCallbackQuery", { callback_query_id: callbackQueryId });
 }
 
-async function sendPhoto(chatId: number, photo: Buffer, caption: string, keyboard?: unknown[][]) {
+async function sendPhoto(chatId: number, photo: Buffer, caption: string) {
   const formData = new FormData();
   formData.append("chat_id", String(chatId));
   formData.append("photo", new Blob([new Uint8Array(photo)], { type: "image/png" }), "chart.png");
   formData.append("caption", caption);
   formData.append("parse_mode", "HTML");
-  if (keyboard) {
-    formData.append("reply_markup", JSON.stringify({ inline_keyboard: keyboard }));
-  }
   await fetch(`https://api.telegram.org/bot${TOKEN()}/sendPhoto`, {
     method: "POST",
     body: formData,
@@ -480,10 +477,7 @@ export async function handleCallbackQuery(
       }
       const chart = await renderRepsChart(exerciseId, points);
       const caption = `${exercise.icon} <b>${exercise.name}</b>\nMax reps : ${points[0].maxReps} → ${points[points.length - 1].maxReps}`;
-      await sendPhoto(chatId, chart, caption, [
-        [{ text: "← Exercices", callback_data: "exo_stats" }],
-        [{ text: "← Stats", callback_data: "stats" }],
-      ]);
+      await sendPhoto(chatId, chart, caption);
     } else {
       const points = getExerciseProgression(workouts, exerciseId, 2);
       if (points.length < 2) {
@@ -498,11 +492,14 @@ export async function handleCallbackQuery(
       const diff = last - first;
       const arrow = diff > 0 ? "📈" : diff < 0 ? "📉" : "➡️";
       const caption = `${exercise.icon} <b>${exercise.name}</b>\n${arrow} ${first}kg → ${last}kg (${diff > 0 ? "+" : ""}${diff}kg)`;
-      await sendPhoto(chatId, chart, caption, [
-        [{ text: "← Exercices", callback_data: "exo_stats" }],
-        [{ text: "← Stats", callback_data: "stats" }],
-      ]);
+      await sendPhoto(chatId, chart, caption);
     }
+    // Send navigation buttons as a separate message
+    await sendMessage(chatId, "Voir un autre exercice ?", [
+      [{ text: "📈 Autre exercice", callback_data: "exo_stats" }],
+      [{ text: "📊 Stats", callback_data: "stats" }],
+      [{ text: "← Menu", callback_data: "menu" }],
+    ]);
     return;
   }
 

@@ -65,21 +65,28 @@ async function clearState(userId: string): Promise<void> {
 
 // --- Helpers ---
 
-function formatSets(sets: SetEntry[]): string {
-  return sets.map((s, i) => `  ${i + 1}. ${s.reps}×${s.weight}kg`).join("\n");
+function formatSets(sets: SetEntry[], bodyweight = false): string {
+  return sets.map((s, i) =>
+    bodyweight
+      ? `  ${i + 1}. ${s.reps} reps`
+      : `  ${i + 1}. ${s.reps}×${s.weight}kg`
+  ).join("\n");
 }
 
 function exerciseView(exerciseId: string, sets: SetEntry[]): { text: string; keyboard: unknown[][] } {
   const exercise = getExerciseById(exerciseId)!;
+  const bw = exercise.bodyweight ?? false;
   let text = `<b>${exercise.icon} ${exercise.name}</b>`;
   if (exercise.subtitle) text += `\n<i>${exercise.subtitle}</i>`;
   text += `\nObjectif : ${exercise.defaultSets}`;
 
   if (sets.length > 0) {
-    text += `\n\n📝 Séries :\n${formatSets(sets)}`;
+    text += `\n\n📝 Séries :\n${formatSets(sets, bw)}`;
   }
 
-  text += `\n\n📩 Envoie une série : <code>8x60</code>`;
+  text += bw
+    ? `\n\n📩 Envoie tes reps : <code>8</code> ou <code>8, 10, 12</code>`
+    : `\n\n📩 Envoie une série : <code>8x60</code>`;
 
   const keyboard: unknown[][] = [];
 
@@ -242,7 +249,7 @@ async function handleDone(chatId: number, messageId: number, userId: string) {
     for (const log of workout.exercises) {
       const ex = getExerciseById(log.exerciseId);
       summary += `${ex?.icon || "•"} <b>${ex?.name || log.exerciseId}</b>\n`;
-      summary += formatSets(log.sets);
+      summary += formatSets(log.sets, ex?.bodyweight ?? false);
       summary += "\n\n";
     }
   }
@@ -293,14 +300,21 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
 
 // --- Set input parsing ---
 
-function parseSets(text: string): SetEntry[] | null {
+function parseSets(text: string, bodyweight = false): SetEntry[] | null {
   const parts = text.split(/[,;]\s*/);
   const sets: SetEntry[] = [];
 
   for (const part of parts) {
-    const match = part.trim().match(/^(\d+)\s*[x×X]\s*(\d+(?:\.\d+)?)$/);
-    if (!match) return null;
-    sets.push({ reps: parseInt(match[1]), weight: parseFloat(match[2]) });
+    const trimmed = part.trim();
+    if (bodyweight) {
+      const match = trimmed.match(/^(\d+)$/);
+      if (!match) return null;
+      sets.push({ reps: parseInt(match[1]), weight: 0 });
+    } else {
+      const match = trimmed.match(/^(\d+)\s*[x×X]\s*(\d+(?:\.\d+)?)$/);
+      if (!match) return null;
+      sets.push({ reps: parseInt(match[1]), weight: parseFloat(match[2]) });
+    }
   }
 
   return sets.length > 0 ? sets : null;
@@ -320,9 +334,15 @@ export async function handleTextMessage(chatId: number, userId: string, text: st
     return;
   }
 
-  const sets = parseSets(text);
+  const exercise = getExerciseById(state.currentExercise!);
+  const bw = exercise?.bodyweight ?? false;
+
+  const sets = parseSets(text, bw);
   if (!sets) {
-    await sendMessage(chatId, "❌ Format invalide.\n\nUtilise : <code>8x60</code> ou <code>8x60, 10x65</code>");
+    const hint = bw
+      ? "Utilise : <code>8</code> ou <code>8, 10, 12</code>"
+      : "Utilise : <code>8x60</code> ou <code>8x60, 10x65</code>";
+    await sendMessage(chatId, `❌ Format invalide.\n\n${hint}`);
     return;
   }
 

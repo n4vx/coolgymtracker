@@ -18,6 +18,14 @@ export const PUSH_EXERCISES: Exercise[] = [
     category: "push",
   },
   {
+    id: "dev-couche-incline",
+    name: "DC Incliné",
+    subtitle: "Haltères ou Barre",
+    defaultSets: "3-4 × 8-10",
+    icon: "🏋️",
+    category: "push",
+  },
+  {
     id: "dev-militaire",
     name: "Développé Militaire",
     subtitle: "Assis",
@@ -53,9 +61,24 @@ export const PULL_EXERCISES: Exercise[] = [
   },
   {
     id: "tractions",
-    name: "Tractions / Tirage Vertical",
+    name: "Tractions",
     defaultSets: "3-4 × 8-10",
     icon: "🧗",
+    category: "pull",
+    bodyweight: true,
+  },
+  {
+    id: "tirage-vertical",
+    name: "Tirage Vertical",
+    defaultSets: "3-4 × 8-10",
+    icon: "🔽",
+    category: "pull",
+  },
+  {
+    id: "epaules-laterales",
+    name: "Épaules Latérales",
+    defaultSets: "3 × 12-15",
+    icon: "🦅",
     category: "pull",
   },
   {

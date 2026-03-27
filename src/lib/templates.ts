@@ -1,13 +1,16 @@
 import { redis } from "./kv";
 import { PUSH_EXERCISES, PULL_EXERCISES } from "./exercises";
 
+export type ExerciseMode = "weight" | "bodyweight" | "time";
+
 export interface ExerciseTemplate {
   id: string;
   name: string;
   subtitle?: string;
   defaultSets: string;
   icon: string;
-  bodyweight?: boolean;
+  bodyweight?: boolean; // legacy, use mode instead
+  mode?: ExerciseMode;
 }
 
 export interface WorkoutTemplate {
@@ -78,4 +81,10 @@ export function getExerciseFromTemplates(templates: WorkoutTemplate[], exerciseI
     if (ex) return ex;
   }
   return undefined;
+}
+
+export function getMode(ex: ExerciseTemplate): ExerciseMode {
+  if (ex.mode) return ex.mode;
+  if (ex.bodyweight) return "bodyweight";
+  return "weight";
 }

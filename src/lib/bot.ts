@@ -1,8 +1,8 @@
 import { redis, saveWorkout, getWorkout, getAllWorkouts, deleteWorkout } from "./kv";
 import { Workout, SetEntry } from "./types";
-import { getExerciseProgression, getExerciseMaxReps, renderProgressionChart, renderRepsChart } from "./chart";
+import { getExerciseProgression, getExerciseMaxReps, getExerciseMaxDuration, renderProgressionChart, renderRepsChart, renderDurationChart } from "./chart";
 import { t, Lang } from "./i18n";
-import { getTemplates, saveTemplates, hasTemplates, initDefaultTemplates, getTemplateById, getExerciseFromTemplates, WorkoutTemplate, ExerciseTemplate } from "./templates";
+import { getTemplates, saveTemplates, hasTemplates, initDefaultTemplates, getTemplateById, getExerciseFromTemplates, getMode, WorkoutTemplate, ExerciseTemplate, ExerciseMode } from "./templates";
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -107,25 +107,40 @@ export async function saveUserProfile(userId: string, from: { first_name?: strin
 
 // --- Helpers ---
 
-function formatSets(sets: SetEntry[], bodyweight = false): string {
-  return sets.map((s, i) =>
-    bodyweight ? `  ${i + 1}. ${s.reps} reps` : `  ${i + 1}. ${s.reps}×${s.weight}kg`
-  ).join("\n");
+function formatDuration(seconds: number): string {
+  if (seconds >= 60) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return secs > 0 ? `${mins}min${secs}s` : `${mins}min`;
+  }
+  return `${seconds}s`;
+}
+
+function formatSets(sets: SetEntry[], mode: ExerciseMode = "weight"): string {
+  return sets.map((s, i) => {
+    if (mode === "time") return `  ${i + 1}. ${formatDuration(s.weight)}`;
+    if (mode === "bodyweight") return `  ${i + 1}. ${s.reps} reps`;
+    return `  ${i + 1}. ${s.reps}×${s.weight}kg`;
+  }).join("\n");
 }
 
 function exerciseView(exercise: ExerciseTemplate, sets: SetEntry[], l: Lang): { text: string; keyboard: unknown[][] } {
-  const bw = exercise.bodyweight ?? false;
+  const mode = getMode(exercise);
   let text = `<b>${exercise.icon} ${exercise.name}</b>`;
   if (exercise.subtitle) text += `\n<i>${exercise.subtitle}</i>`;
   text += `\n${t("target", l)} : ${exercise.defaultSets}`;
 
   if (sets.length > 0) {
-    text += `\n\n📝 ${t("series", l)} :\n${formatSets(sets, bw)}`;
+    text += `\n\n📝 ${t("series", l)} :\n${formatSets(sets, mode)}`;
   }
 
-  text += bw
-    ? `\n\n${t("send_reps", l)} <code>8</code> ${t("or", l)} <code>8, 10, 12</code>`
-    : `\n\n${t("send_set", l)} <code>8x60</code>`;
+  if (mode === "time") {
+    text += `\n\n⏱ ${l === "fr" ? "Envoie la durée" : "Send duration"} : <code>1min</code> ${t("or", l)} <code>1min30</code>`;
+  } else if (mode === "bodyweight") {
+    text += `\n\n${t("send_reps", l)} <code>8</code> ${t("or", l)} <code>8, 10, 12</code>`;
+  } else {
+    text += `\n\n${t("send_set", l)} <code>8x60</code>`;
+  }
 
   const keyboard: unknown[][] = [];
   if (sets.length > 0) {
@@ -296,7 +311,7 @@ async function handleDone(chatId: number, messageId: number, userId: string) {
     for (const log of workout.exercises) {
       const ex = getExerciseFromTemplates(templates, log.exerciseId);
       summary += `${ex?.icon || "•"} <b>${ex?.name || log.exerciseId}</b>\n`;
-      summary += formatSets(log.sets, ex?.bodyweight ?? false);
+      summary += formatSets(log.sets, ex ? getMode(ex) : "weight");
       summary += "\n\n";
     }
   }
@@ -363,8 +378,12 @@ async function handleHistory(chatId: number, messageId: number, userId: string) 
     } else {
       for (const log of w.exercises) {
         const ex = getExerciseFromTemplates(templates, log.exerciseId);
-        const bw = ex?.bodyweight ?? false;
-        const setsStr = log.sets.map((s) => (bw ? `${s.reps}` : `${s.reps}×${s.weight}kg`)).join(" · ");
+        const m = ex ? getMode(ex) : "weight";
+        const setsStr = log.sets.map((s) => {
+          if (m === "time") return formatDuration(s.weight);
+          if (m === "bodyweight") return `${s.reps}`;
+          return `${s.reps}×${s.weight}kg`;
+        }).join(" · ");
         text += `  ${ex?.icon || "•"} ${ex?.name || log.exerciseId}: ${setsStr}\n`;
       }
     }
@@ -396,7 +415,7 @@ async function handleWorkoutDetail(chatId: number, messageId: number, userId: st
     for (const log of workout.exercises) {
       const ex = getExerciseFromTemplates(templates, log.exerciseId);
       text += `${ex?.icon || "•"} <b>${ex?.name || log.exerciseId}</b>\n`;
-      text += formatSets(log.sets, ex?.bodyweight ?? false);
+      text += formatSets(log.sets, ex ? getMode(ex) : "weight");
       text += "\n\n";
     }
   }
@@ -462,8 +481,9 @@ async function showTemplateDetail(chatId: number, messageId: number, userId: str
   if (tmpl.exercises.length === 0) {
     text += l === "fr" ? "<i>Aucun exercice</i>" : "<i>No exercises</i>";
   } else {
+    const modeIcons = { weight: "🏋️", bodyweight: "🏃", time: "⏱" };
     for (const ex of tmpl.exercises) {
-      text += `${ex.icon} ${ex.name}${ex.bodyweight ? " 🏃" : ""} — ${ex.defaultSets}\n`;
+      text += `${ex.icon} ${ex.name} ${modeIcons[getMode(ex)]} — ${ex.defaultSets}\n`;
     }
   }
 
@@ -481,12 +501,49 @@ async function showTemplateDetail(chatId: number, messageId: number, userId: str
 
 // --- Set input parsing ---
 
-function parseSets(text: string, bodyweight = false): SetEntry[] | null {
+function parseDuration(text: string): number | null {
+  // "1min" → 60, "1min30" or "1min30s" → 90, "90s" → 90, "90" → 90, "1:30" → 90, "20min" → 1200
+  const minSec = text.match(/^(\d+)\s*min\s*(\d+)?\s*s?$/i);
+  if (minSec) return parseInt(minSec[1]) * 60 + (minSec[2] ? parseInt(minSec[2]) : 0);
+
+  const colonFormat = text.match(/^(\d+):(\d{1,2})$/);
+  if (colonFormat) return parseInt(colonFormat[1]) * 60 + parseInt(colonFormat[2]);
+
+  const secOnly = text.match(/^(\d+)\s*s$/i);
+  if (secOnly) return parseInt(secOnly[1]);
+
+  const numOnly = text.match(/^(\d+)$/);
+  if (numOnly) return parseInt(numOnly[1]); // treat bare number as seconds
+
+  return null;
+}
+
+function parseSets(text: string, mode: ExerciseMode = "weight"): SetEntry[] | null {
+  if (mode === "time") {
+    // Handle "3x1min" format (reps × duration)
+    const repsDur = text.trim().match(/^(\d+)\s*[x×X]\s*(.+)$/);
+    if (repsDur) {
+      const reps = parseInt(repsDur[1]);
+      const dur = parseDuration(repsDur[2].trim());
+      if (!dur) return null;
+      return Array.from({ length: reps }, () => ({ reps: 1, weight: dur }));
+    }
+    // Single duration: "1min", "90s", "1:30"
+    const parts = text.split(/[,;]\s*/);
+    const sets: SetEntry[] = [];
+    for (const part of parts) {
+      const dur = parseDuration(part.trim());
+      if (!dur) return null;
+      sets.push({ reps: 1, weight: dur });
+    }
+    return sets.length > 0 ? sets : null;
+  }
+
   const parts = text.split(/[,;]\s*/);
   const sets: SetEntry[] = [];
   for (const part of parts) {
     const trimmed = part.trim();
-    if (bodyweight) {
+    if (mode === "bodyweight") {
       const match = trimmed.match(/^(\d+)$/);
       if (!match) return null;
       sets.push({ reps: parseInt(match[1]), weight: 0 });
@@ -565,7 +622,7 @@ export async function handleTextMessage(chatId: number, userId: string, text: st
       : `✅ <b>${state.pendingExercise.name}</b> added (${defaultSets})`,
       [
         [{ text: l === "fr" ? "➕ Encore un exercice" : "➕ Add Another", callback_data: `add_exo:${state.creatingTemplate}` }],
-        [{ text: l === "fr" ? "🏋️ Poids du corps" : "🏋️ Toggle Bodyweight", callback_data: `toggle_bw:${state.creatingTemplate}:${exId}` }],
+        [{ text: `🔄 ${l === "fr" ? "Mode: 🏋️ Weight" : "Mode: 🏋️ Weight"}`, callback_data: `toggle_mode:${state.creatingTemplate}:${exId}` }],
         [{ text: l === "fr" ? "← Voir la séance" : "← View Workout", callback_data: `edit_tmpl:${state.creatingTemplate}` }],
       ]);
     return;
@@ -580,14 +637,19 @@ export async function handleTextMessage(chatId: number, userId: string, text: st
 
   const templates = await getTemplates(userId);
   const exercise = getExerciseFromTemplates(templates, state.currentExercise!);
-  const bw = exercise?.bodyweight ?? false;
+  const mode = exercise ? getMode(exercise) : "weight";
   const l = await getLang(userId);
 
-  const sets = parseSets(text, bw);
+  const sets = parseSets(text, mode);
   if (!sets) {
-    const hint = bw
-      ? `${t("use_format", l)} : <code>8</code> ${t("or", l)} <code>8, 10, 12</code>`
-      : `${t("use_format", l)} : <code>8x60</code> ${t("or", l)} <code>8x60, 10x65</code>`;
+    let hint: string;
+    if (mode === "time") {
+      hint = `${t("use_format", l)} : <code>1min</code>, <code>1min30</code>, <code>3x1min</code>`;
+    } else if (mode === "bodyweight") {
+      hint = `${t("use_format", l)} : <code>8</code> ${t("or", l)} <code>8, 10, 12</code>`;
+    } else {
+      hint = `${t("use_format", l)} : <code>8x60</code> ${t("or", l)} <code>8x60, 10x65</code>`;
+    }
     await sendMessage(chatId, `${t("invalid_format", l)}\n\n${hint}`);
     return;
   }
@@ -704,14 +766,22 @@ export async function handleCallbackQuery(
     if (!exercise) return;
 
     const workouts = await getAllWorkouts(userId);
-    const isBw = exercise.bodyweight ?? false;
+    const mode = getMode(exercise);
+    const notEnough = [[{ text: `← ${t("progression_title", l)}`, callback_data: "exo_stats" }]];
 
-    if (isBw) {
+    if (mode === "time") {
+      const points = getExerciseMaxDuration(workouts, exerciseId, 2);
+      if (points.length < 2) {
+        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\n${t("not_enough_data", l)}`, notEnough);
+        return;
+      }
+      const chart = await renderDurationChart(exerciseId, points, exercise.name);
+      const first = points[0].maxDuration, last = points[points.length - 1].maxDuration;
+      await sendPhoto(chatId, chart, `${exercise.icon} <b>${exercise.name}</b>\n⏱ ${formatDuration(first)} → ${formatDuration(last)}`);
+    } else if (mode === "bodyweight") {
       const points = getExerciseMaxReps(workouts, exerciseId, 2);
       if (points.length < 2) {
-        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\n${t("not_enough_data", l)}`, [
-          [{ text: `← ${t("progression_title", l)}`, callback_data: "exo_stats" }],
-        ]);
+        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\n${t("not_enough_data", l)}`, notEnough);
         return;
       }
       const chart = await renderRepsChart(exerciseId, points, exercise.name);
@@ -719,9 +789,7 @@ export async function handleCallbackQuery(
     } else {
       const points = getExerciseProgression(workouts, exerciseId, 2);
       if (points.length < 2) {
-        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\n${t("not_enough_data", l)}`, [
-          [{ text: `← ${t("progression_title", l)}`, callback_data: "exo_stats" }],
-        ]);
+        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\n${t("not_enough_data", l)}`, notEnough);
         return;
       }
       const chart = await renderProgressionChart(exerciseId, points, exercise.name);
@@ -823,20 +891,26 @@ export async function handleCallbackQuery(
     return;
   }
 
-  if (data.startsWith("toggle_bw:")) {
+  if (data.startsWith("toggle_mode:")) {
     const [, templateId, exId] = data.split(":");
     const templates = await getTemplates(userId);
     const tmpl = getTemplateById(templates, templateId);
     if (!tmpl) return;
     const ex = tmpl.exercises.find((e) => e.id === exId);
     if (!ex) return;
-    ex.bodyweight = !ex.bodyweight;
+    const current = getMode(ex);
+    const next: ExerciseMode = current === "weight" ? "bodyweight" : current === "bodyweight" ? "time" : "weight";
+    ex.mode = next;
+    ex.bodyweight = next === "bodyweight";
     await saveTemplates(userId, templates);
     const l = await getLang(userId);
-    await editMessage(chatId, messageId, l === "fr"
-      ? `${ex.bodyweight ? "🏃 Poids du corps activé" : "🏋️ Poids du corps désactivé"} pour <b>${ex.name}</b>`
-      : `${ex.bodyweight ? "🏃 Bodyweight enabled" : "🏋️ Bodyweight disabled"} for <b>${ex.name}</b>`,
-      [[{ text: l === "fr" ? "← Voir la séance" : "← View Workout", callback_data: `edit_tmpl:${templateId}` }]]);
+    const modeLabels = { weight: "🏋️ Weight", bodyweight: "🏃 Bodyweight", time: "⏱ Time" };
+    await editMessage(chatId, messageId,
+      `${modeLabels[next]} → <b>${ex.name}</b>`,
+      [
+        [{ text: `🔄 ${l === "fr" ? "Changer le mode" : "Change mode"}`, callback_data: `toggle_mode:${templateId}:${exId}` }],
+        [{ text: l === "fr" ? "← Voir la séance" : "← View Workout", callback_data: `edit_tmpl:${templateId}` }],
+      ]);
     return;
   }
 

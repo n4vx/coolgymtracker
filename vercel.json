@@ -1,0 +1,10 @@
+{
+  "deploymentProtection": {
+    "overrides": [
+      {
+        "path": "/api/telegram",
+        "access": "public"
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 import { redis, saveWorkout, getWorkout, getAllWorkouts, deleteWorkout } from "./kv";
-import { getExercisesByType, getExerciseById } from "./exercises";
+import { getExercisesByType, getExerciseById, PUSH_EXERCISES, PULL_EXERCISES } from "./exercises";
 import { Workout, SetEntry } from "./types";
+import { getExerciseProgression, getExerciseMaxReps, renderProgressionChart, renderRepsChart } from "./chart";
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -39,6 +40,21 @@ async function editMessage(chatId: number, messageId: number, text: string, keyb
 
 async function answerCallback(callbackQueryId: string) {
   await tg("answerCallbackQuery", { callback_query_id: callbackQueryId });
+}
+
+async function sendPhoto(chatId: number, photo: Buffer, caption: string, keyboard?: unknown[][]) {
+  const formData = new FormData();
+  formData.append("chat_id", String(chatId));
+  formData.append("photo", new Blob([new Uint8Array(photo)], { type: "image/png" }), "chart.png");
+  formData.append("caption", caption);
+  formData.append("parse_mode", "HTML");
+  if (keyboard) {
+    formData.append("reply_markup", JSON.stringify({ inline_keyboard: keyboard }));
+  }
+  await fetch(`https://api.telegram.org/bot${TOKEN()}/sendPhoto`, {
+    method: "POST",
+    body: formData,
+  });
 }
 
 // --- Conversation state ---
@@ -293,10 +309,14 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
     text += `\n${typeEmoji} <b>${w.date}</b> — ${w.type.toUpperCase()} (${exerciseCount} exercice${exerciseCount > 1 ? "s" : ""})`;
   }
 
-  const keyboard: unknown[][] = last5.map((w) => {
+  const keyboard: unknown[][] = [
+    [{ text: "📈 Progression par exercice", callback_data: "exo_stats" }],
+  ];
+  const deleteButtons = last5.map((w) => {
     const typeEmoji = w.type === "push" ? "🔥" : w.type === "pull" ? "🧗" : "⚡";
     return [{ text: `🗑 ${w.date} ${typeEmoji} ${w.type.toUpperCase()}`, callback_data: `delconfirm:${w.id}` }];
   });
+  keyboard.push(...deleteButtons);
   keyboard.push([{ text: "← Retour", callback_data: "menu" }]);
 
   await editMessage(chatId, messageId, text, keyboard);
@@ -429,6 +449,60 @@ export async function handleCallbackQuery(
 
   if (data === "stats") {
     await handleStats(chatId, messageId, userId);
+    return;
+  }
+
+  if (data === "exo_stats") {
+    const allExos = [...PUSH_EXERCISES, ...PULL_EXERCISES];
+    const keyboard = allExos.map((ex) => [
+      { text: `${ex.icon} ${ex.name}`, callback_data: `exo_chart:${ex.id}` },
+    ]);
+    keyboard.push([{ text: "← Stats", callback_data: "stats" }]);
+    await editMessage(chatId, messageId, "📈 <b>Progression par exercice</b>\n\nChoisis un exercice :", keyboard);
+    return;
+  }
+
+  if (data.startsWith("exo_chart:")) {
+    const exerciseId = data.split(":")[1];
+    const exercise = getExerciseById(exerciseId);
+    if (!exercise) return;
+
+    const workouts = await getAllWorkouts(userId);
+    const isBw = exercise.bodyweight ?? false;
+
+    if (isBw) {
+      const points = getExerciseMaxReps(workouts, exerciseId, 2);
+      if (points.length < 2) {
+        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\nPas assez de données (min 2 séances).`, [
+          [{ text: "← Exercices", callback_data: "exo_stats" }],
+        ]);
+        return;
+      }
+      const chart = await renderRepsChart(exerciseId, points);
+      const caption = `${exercise.icon} <b>${exercise.name}</b>\nMax reps : ${points[0].maxReps} → ${points[points.length - 1].maxReps}`;
+      await sendPhoto(chatId, chart, caption, [
+        [{ text: "← Exercices", callback_data: "exo_stats" }],
+        [{ text: "← Stats", callback_data: "stats" }],
+      ]);
+    } else {
+      const points = getExerciseProgression(workouts, exerciseId, 2);
+      if (points.length < 2) {
+        await editMessage(chatId, messageId, `${exercise.icon} <b>${exercise.name}</b>\n\nPas assez de données (min 2 séances).`, [
+          [{ text: "← Exercices", callback_data: "exo_stats" }],
+        ]);
+        return;
+      }
+      const chart = await renderProgressionChart(exerciseId, points);
+      const first = points[0].maxWeight;
+      const last = points[points.length - 1].maxWeight;
+      const diff = last - first;
+      const arrow = diff > 0 ? "📈" : diff < 0 ? "📉" : "➡️";
+      const caption = `${exercise.icon} <b>${exercise.name}</b>\n${arrow} ${first}kg → ${last}kg (${diff > 0 ? "+" : ""}${diff}kg)`;
+      await sendPhoto(chatId, chart, caption, [
+        [{ text: "← Exercices", callback_data: "exo_stats" }],
+        [{ text: "← Stats", callback_data: "stats" }],
+      ]);
+    }
     return;
   }
 

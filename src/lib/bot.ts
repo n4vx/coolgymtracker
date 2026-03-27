@@ -56,11 +56,49 @@ async function getState(userId: string): Promise<BotState> {
 }
 
 async function setState(userId: string, state: BotState): Promise<void> {
-  await redis.set(`botstate:${userId}`, JSON.stringify(state), { ex: 86400 }); // 24h TTL
+  await redis.set(`botstate:${userId}`, JSON.stringify(state), { ex: 86400 });
 }
 
 async function clearState(userId: string): Promise<void> {
   await redis.del(`botstate:${userId}`);
+}
+
+// --- Helpers ---
+
+function formatSets(sets: SetEntry[]): string {
+  return sets.map((s, i) => `  ${i + 1}. ${s.reps}×${s.weight}kg`).join("\n");
+}
+
+function exerciseView(exerciseId: string, sets: SetEntry[]): { text: string; keyboard: unknown[][] } {
+  const exercise = getExerciseById(exerciseId)!;
+  let text = `<b>${exercise.icon} ${exercise.name}</b>`;
+  if (exercise.subtitle) text += `\n<i>${exercise.subtitle}</i>`;
+  text += `\nObjectif : ${exercise.defaultSets}`;
+
+  if (sets.length > 0) {
+    text += `\n\n📝 Séries :\n${formatSets(sets)}`;
+  }
+
+  text += `\n\n📩 Envoie une série : <code>8x60</code>`;
+
+  const keyboard: unknown[][] = [];
+
+  // Edit/remove buttons for each set
+  if (sets.length > 0) {
+    const removeButtons = sets.map((_, i) => ({
+      text: `🗑 Série ${i + 1}`,
+      callback_data: `rmset:${i}`,
+    }));
+    // Group 3 per row
+    for (let i = 0; i < removeButtons.length; i += 3) {
+      keyboard.push(removeButtons.slice(i, i + 3));
+    }
+  }
+
+  keyboard.push([{ text: "✅ Exercice terminé", callback_data: "exercise_done" }]);
+  keyboard.push([{ text: "← Retour aux exercices", callback_data: "back_to_exercises" }]);
+
+  return { text, keyboard };
 }
 
 // --- Handlers ---
@@ -84,7 +122,6 @@ async function handleNewWorkout(chatId: number, messageId: number) {
 async function handleTypeSelection(chatId: number, messageId: number, userId: string, type: string) {
   const today = new Date().toISOString().split("T")[0];
 
-  // Check for existing workout today of this type
   const allWorkouts = await getAllWorkouts(userId);
   let workout = allWorkouts.find((w) => w.date === today && w.type === type);
 
@@ -110,11 +147,17 @@ async function showExerciseList(chatId: number, messageId: number, userId: strin
   const typeLabel = type === "push" ? "Push 🔥" : type === "pull" ? "Pull 🧗" : "Autre ⚡";
 
   const keyboard = exercises.map((ex) => {
+    const log = workout.exercises.find((e) => e.exerciseId === ex.id);
     const done = loggedIds.has(ex.id);
-    return [{ text: `${done ? "✅" : ex.icon} ${ex.name}`, callback_data: `exercise:${ex.id}` }];
+    const setsInfo = log ? ` (${log.sets.length}s)` : "";
+    return [{ text: `${done ? "✅" : ex.icon} ${ex.name}${setsInfo}`, callback_data: `exercise:${ex.id}` }];
   });
 
   keyboard.push([{ text: "✅ Terminer la séance", callback_data: "done" }]);
+
+  // Clear currentExercise when viewing list
+  const state = await getState(userId);
+  await setState(userId, { ...state, currentExercise: undefined });
 
   await editMessage(chatId, messageId, `<b>${typeLabel}</b>\n\nChoisis un exercice :`, keyboard);
 }
@@ -126,22 +169,55 @@ async function handleExerciseSelection(chatId: number, messageId: number, userId
   const state = await getState(userId);
   await setState(userId, { ...state, currentExercise: exerciseId });
 
-  // Check if already logged
-  let existingSets = "";
+  // Get existing sets
+  let sets: SetEntry[] = [];
   if (state.workoutId) {
     const workout = await getWorkout(state.workoutId, userId);
     const log = workout?.exercises.find((e) => e.exerciseId === exerciseId);
-    if (log && log.sets.length > 0) {
-      existingSets = `\n\n📝 Déjà enregistré :\n${log.sets.map((s, i) => `  ${i + 1}. ${s.reps}×${s.weight}kg`).join("\n")}\n\nRenvoie pour remplacer.`;
-    }
+    if (log) sets = log.sets;
   }
 
-  await editMessage(
-    chatId,
-    messageId,
-    `<b>${exercise.icon} ${exercise.name}</b>${exercise.subtitle ? `\n<i>${exercise.subtitle}</i>` : ""}\nObjectif : ${exercise.defaultSets}${existingSets}\n\n📩 Envoie tes séries :\n<code>8x60, 10x65, 8x65</code>\n(reps × poids en kg)`,
-    [[{ text: "← Retour aux exercices", callback_data: "back_to_exercises" }]]
-  );
+  const view = exerciseView(exerciseId, sets);
+  await editMessage(chatId, messageId, view.text, view.keyboard);
+}
+
+async function handleRemoveSet(chatId: number, messageId: number, userId: string, setIndex: number) {
+  const state = await getState(userId);
+  if (!state.workoutId || !state.currentExercise) return;
+
+  const workout = await getWorkout(state.workoutId, userId);
+  if (!workout) return;
+
+  const log = workout.exercises.find((e) => e.exerciseId === state.currentExercise);
+  if (!log) return;
+
+  log.sets.splice(setIndex, 1);
+
+  // If no sets left, remove the exercise log entirely
+  if (log.sets.length === 0) {
+    workout.exercises = workout.exercises.filter((e) => e.exerciseId !== state.currentExercise);
+  }
+
+  await saveWorkout(workout, userId);
+
+  const view = exerciseView(state.currentExercise, log.sets.length > 0 ? log.sets : []);
+  await editMessage(chatId, messageId, view.text, view.keyboard);
+}
+
+async function handleExerciseDone(chatId: number, messageId: number, userId: string) {
+  const state = await getState(userId);
+  if (!state.workoutId || !state.workoutType) {
+    await handleStart(chatId);
+    return;
+  }
+
+  const workout = await getWorkout(state.workoutId, userId);
+  if (!workout) {
+    await handleStart(chatId);
+    return;
+  }
+
+  await showExerciseList(chatId, messageId, userId, state.workoutType, workout);
 }
 
 async function handleDone(chatId: number, messageId: number, userId: string) {
@@ -158,7 +234,6 @@ async function handleDone(chatId: number, messageId: number, userId: string) {
     return;
   }
 
-  // Build summary
   let summary = `✅ <b>Séance ${workout.type.toUpperCase()} terminée !</b>\n📅 ${workout.date}\n\n`;
 
   if (workout.exercises.length === 0) {
@@ -167,7 +242,7 @@ async function handleDone(chatId: number, messageId: number, userId: string) {
     for (const log of workout.exercises) {
       const ex = getExerciseById(log.exerciseId);
       summary += `${ex?.icon || "•"} <b>${ex?.name || log.exerciseId}</b>\n`;
-      summary += log.sets.map((s, i) => `  ${i + 1}. ${s.reps}×${s.weight}kg`).join("\n");
+      summary += formatSets(log.sets);
       summary += "\n\n";
     }
   }
@@ -189,7 +264,6 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
     return;
   }
 
-  // Last 30 days
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const recent = workouts.filter((w) => new Date(w.date) >= thirtyDaysAgo);
@@ -204,7 +278,6 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
   text += `🧗 Pull : <b>${pullCount}</b>\n`;
   if (otherCount > 0) text += `⚡ Autre : <b>${otherCount}</b>\n`;
 
-  // Show last 5 workouts
   text += `\n<b>Dernières séances :</b>\n`;
   const last5 = workouts.slice(-5).reverse();
   for (const w of last5) {
@@ -241,20 +314,19 @@ export async function handleTextMessage(chatId: number, userId: string, text: st
 
   const state = await getState(userId);
 
+  // If user has an active workout but no exercise selected, they might be typing from exercise list
   if (!state.currentExercise || !state.workoutId) {
-    await sendMessage(chatId, "Envoie /start pour commencer.");
+    await sendMessage(chatId, "Sélectionne d'abord un exercice, ou envoie /start.");
     return;
   }
 
   const sets = parseSets(text);
   if (!sets) {
-    await sendMessage(chatId, "❌ Format invalide.\n\nUtilise : <code>8x60, 10x65, 8x65</code>", [
-      [{ text: "← Retour aux exercices", callback_data: "back_to_exercises" }],
-    ]);
+    await sendMessage(chatId, "❌ Format invalide.\n\nUtilise : <code>8x60</code> ou <code>8x60, 10x65</code>");
     return;
   }
 
-  // Save sets to workout
+  // Append sets to existing ones (not replace)
   const workout = await getWorkout(state.workoutId, userId);
   if (!workout) {
     await sendMessage(chatId, "Séance introuvable. Envoie /start.");
@@ -262,23 +334,17 @@ export async function handleTextMessage(chatId: number, userId: string, text: st
     return;
   }
 
+  const existingLog = workout.exercises.find((e) => e.exerciseId === state.currentExercise);
+  const existingSets = existingLog ? existingLog.sets : [];
+  const allSets = [...existingSets, ...sets];
+
   const otherExercises = workout.exercises.filter((e) => e.exerciseId !== state.currentExercise);
-  workout.exercises = [...otherExercises, { exerciseId: state.currentExercise!, sets }];
+  workout.exercises = [...otherExercises, { exerciseId: state.currentExercise!, sets: allSets }];
   await saveWorkout(workout, userId);
 
-  const exercise = getExerciseById(state.currentExercise!);
-  const setsText = sets.map((s, i) => `${i + 1}. ${s.reps}×${s.weight}kg`).join("\n");
-
-  await setState(userId, { ...state, currentExercise: undefined });
-
-  await sendMessage(
-    chatId,
-    `✅ <b>${exercise?.icon} ${exercise?.name}</b>\n${setsText}\n\nEnregistré !`,
-    [
-      [{ text: "← Retour aux exercices", callback_data: "back_to_exercises" }],
-      [{ text: "✅ Terminer la séance", callback_data: "done" }],
-    ]
-  );
+  // Show updated exercise view with all sets
+  const view = exerciseView(state.currentExercise!, allSets);
+  await sendMessage(chatId, view.text, view.keyboard);
 }
 
 export async function handleCallbackQuery(
@@ -316,17 +382,19 @@ export async function handleCallbackQuery(
     return;
   }
 
+  if (data.startsWith("rmset:")) {
+    const setIndex = parseInt(data.split(":")[1]);
+    await handleRemoveSet(chatId, messageId, userId, setIndex);
+    return;
+  }
+
+  if (data === "exercise_done") {
+    await handleExerciseDone(chatId, messageId, userId);
+    return;
+  }
+
   if (data === "back_to_exercises") {
-    const state = await getState(userId);
-    if (state.workoutId && state.workoutType) {
-      const workout = await getWorkout(state.workoutId, userId);
-      if (workout) {
-        await setState(userId, { ...state, currentExercise: undefined });
-        await showExerciseList(chatId, messageId, userId, state.workoutType, workout);
-        return;
-      }
-    }
-    await handleStart(chatId);
+    await handleExerciseDone(chatId, messageId, userId);
     return;
   }
 

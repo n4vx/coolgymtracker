@@ -8,22 +8,13 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Gym Tracker",
-  description: "Suivi de séances Push/Pull",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "Gym",
-  },
+  title: "Cool Workout Bot — Admin",
+  description: "Admin dashboard for Cool Workout Bot",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
   themeColor: "#09090b",
 };
 
@@ -33,9 +24,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className={`${geist.variable} h-full`}>
+    <html lang="en" className={`${geist.variable} h-full`}>
       <body className="min-h-full flex flex-col antialiased">
-        <main className="flex-1 mx-auto w-full max-w-md px-4 py-6 pb-safe">
+        <main className="flex-1 mx-auto w-full max-w-4xl px-6 py-8">
           {children}
         </main>
       </body>

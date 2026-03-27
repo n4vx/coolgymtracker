@@ -1,32 +1,151 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
-export default function Home() {
+interface UserInfo {
+  id: string;
+  lang: string;
+  templateCount: number;
+  workoutCount: number;
+  templates: { id: string; name: string; icon: string; exercises: { id: string; name: string }[] }[];
+}
+
+export default function AdminDashboard() {
+  const [users, setUsers] = useState<UserInfo[]>([]);
+  const [keys, setKeys] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"users" | "keys">("users");
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/admin?action=users").then((r) => r.json()),
+      fetch("/api/admin?action=keys").then((r) => r.json()),
+    ]).then(([usersData, keysData]) => {
+      setUsers(usersData.users || []);
+      setKeys(keysData.keys || []);
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] text-muted">
+        Loading...
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] gap-6">
-      <div className="text-center mb-4">
-        <div className="text-5xl mb-3">🏋️</div>
-        <h1 className="text-3xl font-bold">Gym Tracker</h1>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">🏋️ Cool Workout Bot</h1>
+          <p className="text-muted text-sm">Admin Dashboard</p>
+        </div>
+        <div className="flex gap-2 text-sm">
+          <span className="px-3 py-1 rounded-lg bg-emerald/20 text-emerald">
+            {users.length} user{users.length !== 1 ? "s" : ""}
+          </span>
+          <span className="px-3 py-1 rounded-lg bg-sky/20 text-sky">
+            {keys.length} keys
+          </span>
+        </div>
       </div>
 
-      <div className="w-full flex flex-col gap-4">
-        <Link
-          href="/workout"
-          className="flex items-center justify-center gap-3 w-full py-5 rounded-2xl bg-emerald text-white font-semibold text-xl active:scale-95 transition-transform"
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-card-border pb-2">
+        <button
+          onClick={() => setTab("users")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            tab === "users" ? "bg-emerald text-white" : "text-muted hover:text-foreground"
+          }`}
         >
-          <span className="text-2xl">💪</span>
-          Nouvelle Séance
-        </Link>
-
-        <Link
-          href="/stats"
-          className="flex items-center justify-center gap-3 w-full py-5 rounded-2xl bg-card border border-card-border text-foreground font-semibold text-xl active:scale-95 transition-transform"
+          👥 Users
+        </button>
+        <button
+          onClick={() => setTab("keys")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            tab === "keys" ? "bg-emerald text-white" : "text-muted hover:text-foreground"
+          }`}
         >
-          <span className="text-2xl">📊</span>
-          Stats
-        </Link>
+          🗄️ Database Keys
+        </button>
       </div>
+
+      {tab === "users" && (
+        <div className="flex flex-col gap-4">
+          {users.map((user) => (
+            <Link
+              key={user.id}
+              href={`/admin/user/${user.id}`}
+              className="bg-card border border-card-border rounded-xl p-5 hover:border-emerald/50 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">👤</span>
+                  <div>
+                    <div className="font-semibold">User {user.id}</div>
+                    <div className="text-muted text-xs">
+                      {user.lang === "fr" ? "🇫🇷 Français" : "🇬🇧 English"}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 text-sm">
+                  <span className="text-muted">
+                    {user.templateCount} workout{user.templateCount !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-muted">
+                    {user.workoutCount} session{user.workoutCount !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {user.templates.map((tmpl) => (
+                  <span
+                    key={tmpl.id}
+                    className="px-2 py-1 rounded-md bg-card-border text-xs"
+                  >
+                    {tmpl.icon} {tmpl.name} ({tmpl.exercises.length})
+                  </span>
+                ))}
+              </div>
+            </Link>
+          ))}
+          {users.length === 0 && (
+            <div className="text-muted text-center py-8">No users yet</div>
+          )}
+        </div>
+      )}
+
+      {tab === "keys" && (
+        <div className="bg-card border border-card-border rounded-xl overflow-hidden">
+          <div className="max-h-[60vh] overflow-y-auto">
+            {keys.map((key) => (
+              <div
+                key={key}
+                className="flex items-center justify-between px-4 py-2.5 border-b border-card-border last:border-0 hover:bg-card-border/30 text-sm font-mono"
+              >
+                <span className="truncate">{key}</span>
+                <KeyType keyName={key} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function KeyType({ keyName }: { keyName: string }) {
+  let color = "text-muted";
+  let label = "other";
+
+  if (keyName.startsWith("workout:")) { color = "text-emerald"; label = "workout"; }
+  else if (keyName.startsWith("workouts:index")) { color = "text-sky"; label = "index"; }
+  else if (keyName.startsWith("templates:")) { color = "text-orange"; label = "template"; }
+  else if (keyName.startsWith("settings:")) { color = "text-sky"; label = "settings"; }
+  else if (keyName.startsWith("botstate:")) { color = "text-muted"; label = "state"; }
+
+  return <span className={`text-xs ${color}`}>{label}</span>;
 }

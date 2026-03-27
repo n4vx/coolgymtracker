@@ -92,6 +92,17 @@ async function getLang(userId: string): Promise<Lang> {
   return (await getSettings(userId)).lang;
 }
 
+// --- User profile ---
+
+export async function saveUserProfile(userId: string, from: { first_name?: string; last_name?: string; username?: string }) {
+  await redis.set(`profile:${userId}`, JSON.stringify({
+    firstName: from.first_name || "",
+    lastName: from.last_name || "",
+    username: from.username || "",
+    lastSeen: new Date().toISOString(),
+  }));
+}
+
 // --- Helpers ---
 
 function formatSets(sets: SetEntry[], bodyweight = false): string {

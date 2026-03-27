@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleStart, handleTextMessage, handleCallbackQuery } from "@/lib/bot";
+import { handleStart, handleTextMessage, handleCallbackQuery, saveUserProfile } from "@/lib/bot";
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,18 +7,22 @@ export async function POST(request: NextRequest) {
 
     if (update.message) {
       const chatId = update.message.chat.id;
-      const userId = String(update.message.from.id);
+      const from = update.message.from;
+      const userId = String(from.id);
       const text = update.message.text || "";
 
+      await saveUserProfile(userId, from);
       await handleTextMessage(chatId, userId, text);
     }
 
     if (update.callback_query) {
       const chatId = update.callback_query.message.chat.id;
       const messageId = update.callback_query.message.message_id;
-      const userId = String(update.callback_query.from.id);
+      const from = update.callback_query.from;
+      const userId = String(from.id);
       const data = update.callback_query.data || "";
 
+      await saveUserProfile(userId, from);
       await handleCallbackQuery(chatId, messageId, userId, data, update.callback_query.id);
     }
   } catch (error) {

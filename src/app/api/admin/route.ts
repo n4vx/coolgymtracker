@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     // Extract unique user IDs
     const userIds = new Set<string>();
     for (const key of allKeys) {
-      const match = key.match(/^(?:workouts:index|templates|settings|botstate):(\d+)$/);
+      const match = key.match(/^(?:workouts:index|templates|settings|botstate|profile):(\d+)$/);
       if (match) userIds.add(match[1]);
       const workoutMatch = key.match(/^workout:(\d+):/);
       if (workoutMatch) userIds.add(workoutMatch[1]);
@@ -43,6 +43,9 @@ export async function GET(request: NextRequest) {
       const settingsData = await redis.get<string>(`settings:${uid}`);
       const settings = settingsData ? (typeof settingsData === "string" ? JSON.parse(settingsData) : settingsData) : null;
 
+      const profileData = await redis.get<string>(`profile:${uid}`);
+      const profile = profileData ? (typeof profileData === "string" ? JSON.parse(profileData) : profileData) : null;
+
       const templatesData = await redis.get<string>(`templates:${uid}`);
       const templates = templatesData ? (typeof templatesData === "string" ? JSON.parse(templatesData) : templatesData) : [];
 
@@ -50,6 +53,10 @@ export async function GET(request: NextRequest) {
 
       users.push({
         id: uid,
+        firstName: profile?.firstName || "",
+        lastName: profile?.lastName || "",
+        username: profile?.username || "",
+        lastSeen: profile?.lastSeen || null,
         lang: settings?.lang || "fr",
         templateCount: Array.isArray(templates) ? templates.length : 0,
         workoutCount: workoutIds.length,

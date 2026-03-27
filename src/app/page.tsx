@@ -5,6 +5,10 @@ import Link from "next/link";
 
 interface UserInfo {
   id: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+  lastSeen: string | null;
   lang: string;
   templateCount: number;
   workoutCount: number;
@@ -85,9 +89,14 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">👤</span>
                   <div>
-                    <div className="font-semibold">User {user.id}</div>
-                    <div className="text-muted text-xs">
-                      {user.lang === "fr" ? "🇫🇷 Français" : "🇬🇧 English"}
+                    <div className="font-semibold">
+                      {user.firstName || user.username || `User ${user.id}`}
+                      {user.lastName ? ` ${user.lastName}` : ""}
+                    </div>
+                    <div className="text-muted text-xs flex gap-2">
+                      {user.username && <span>@{user.username}</span>}
+                      <span>{user.lang === "fr" ? "🇫🇷" : "🇬🇧"}</span>
+                      {user.lastSeen && <span>Last seen {new Date(user.lastSeen).toLocaleDateString()}</span>}
                     </div>
                   </div>
                 </div>

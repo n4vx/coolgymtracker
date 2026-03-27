@@ -2,7 +2,7 @@ export type Lang = "fr" | "en";
 
 const strings = {
   // Home
-  home_title: { fr: "🏋️ <b>Gym Tracker</b>\n\nQue veux-tu faire ?", en: "🏋️ <b>Gym Tracker</b>\n\nWhat do you want to do?" },
+  home_title: { fr: "🏋️ <b>Cool Workout Bot</b>\n\nQue veux-tu faire ?", en: "🏋️ <b>Cool Workout Bot</b>\n\nWhat do you want to do?" },
   btn_new_workout: { fr: "💪 Nouvelle Séance", en: "💪 New Workout" },
   btn_stats: { fr: "📊 Stats", en: "📊 Stats" },
   btn_settings: { fr: "⚙️ Réglages", en: "⚙️ Settings" },

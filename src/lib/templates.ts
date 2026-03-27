@@ -27,11 +27,12 @@ function templatesKey(userId: string) {
 export async function getTemplates(userId: string): Promise<WorkoutTemplate[]> {
   const data = await redis.get<string>(templatesKey(userId));
   if (!data) return [];
-  return typeof data === "string" ? JSON.parse(data) : data;
+  const parsed = typeof data === "string" ? JSON.parse(data) : data;
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 export async function saveTemplates(userId: string, templates: WorkoutTemplate[]): Promise<void> {
-  await redis.set(templatesKey(userId), JSON.stringify(templates));
+  await redis.set(templatesKey(userId), JSON.stringify(normalizeTemplates(templates)));
 }
 
 export async function hasTemplates(userId: string): Promise<boolean> {
@@ -51,7 +52,7 @@ export async function initDefaultTemplates(userId: string): Promise<void> {
         subtitle: e.subtitle,
         defaultSets: e.defaultSets,
         icon: e.icon,
-        bodyweight: e.bodyweight,
+        mode: e.mode ?? "weight",
       })),
     },
     {
@@ -64,7 +65,7 @@ export async function initDefaultTemplates(userId: string): Promise<void> {
         subtitle: e.subtitle,
         defaultSets: e.defaultSets,
         icon: e.icon,
-        bodyweight: e.bodyweight,
+        mode: e.mode ?? "weight",
       })),
     },
   ];
@@ -87,4 +88,17 @@ export function getMode(ex: ExerciseTemplate): ExerciseMode {
   if (ex.mode) return ex.mode;
   if (ex.bodyweight) return "bodyweight";
   return "weight";
+}
+
+export function normalizeTemplates(templates: WorkoutTemplate[]): WorkoutTemplate[] {
+  return templates.map((template) => ({
+    ...template,
+    exercises: template.exercises.map((exercise) => {
+      const { bodyweight: _legacyBodyweight, ...rest } = exercise;
+      return {
+        ...rest,
+        mode: getMode(exercise),
+      };
+    }),
+  }));
 }

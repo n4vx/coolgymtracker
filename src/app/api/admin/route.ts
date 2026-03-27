@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
+import { normalizeTemplates } from "@/lib/templates";
 
 const redis = new Redis({
   url: process.env.KV_REST_API_URL!,
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const { uid, templates } = await request.json();
   if (!uid || !templates) return NextResponse.json({ error: "uid and templates required" }, { status: 400 });
-  await redis.set(`templates:${uid}`, JSON.stringify(templates));
+  await redis.set(`templates:${uid}`, JSON.stringify(normalizeTemplates(templates)));
   return NextResponse.json({ ok: true });
 }
 

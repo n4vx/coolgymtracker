@@ -615,7 +615,7 @@ export async function handleTextMessage(chatId: number, userId: string, text: st
       name: state.pendingExercise.name,
       icon: state.pendingExercise.icon,
       defaultSets,
-      bodyweight: false,
+      mode: "weight",
     });
     await saveTemplates(userId, templates);
     await setState(userId, { creatingTemplate: state.creatingTemplate, awaitingInput: undefined, pendingExercise: undefined });
@@ -904,7 +904,7 @@ export async function handleCallbackQuery(
     const current = getMode(ex);
     const next: ExerciseMode = current === "weight" ? "bodyweight" : current === "bodyweight" ? "time" : "weight";
     ex.mode = next;
-    ex.bodyweight = next === "bodyweight";
+    delete ex.bodyweight;
     await saveTemplates(userId, templates);
     const l = await getLang(userId);
     const modeLabels = { weight: "🏋️ Weight", bodyweight: "🏃 Bodyweight", time: "⏱ Time" };

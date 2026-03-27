@@ -25,5 +25,5 @@ export interface Exercise {
   defaultSets: string;
   icon: string;
   category: WorkoutType;
-  bodyweight?: boolean;
+  mode?: "weight" | "bodyweight" | "time";
 }

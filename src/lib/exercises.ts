@@ -65,7 +65,7 @@ export const PULL_EXERCISES: Exercise[] = [
     defaultSets: "3-4 × 8-10",
     icon: "🧗",
     category: "pull",
-    bodyweight: true,
+    mode: "bodyweight",
   },
   {
     id: "tirage-vertical",

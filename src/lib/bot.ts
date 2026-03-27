@@ -130,13 +130,11 @@ function exerciseView(exercise: ExerciseTemplate, sets: SetEntry[], l: Lang): { 
 export async function handleStart(chatId: number, userId: string) {
   const has = await hasTemplates(userId);
   if (!has) {
-    const l = await getLang(userId);
-    await sendMessage(chatId, l === "fr"
-      ? "🏋️ <b>Bienvenue sur Gym Tracker !</b>\n\nVeux-tu utiliser les séances par défaut (Push/Pull) ou créer les tiennes ?"
-      : "🏋️ <b>Welcome to Gym Tracker!</b>\n\nDo you want to use default workouts (Push/Pull) or create your own?",
+    await sendMessage(chatId,
+      "🏋️ <b>Welcome to Cool Workout Bot!</b>\n\nChoose your language:",
       [
-        [{ text: l === "fr" ? "✅ Utiliser les défauts" : "✅ Use Defaults", callback_data: "onboard_defaults" }],
-        [{ text: l === "fr" ? "✏️ Créer les miennes" : "✏️ Create My Own", callback_data: "onboard_custom" }],
+        [{ text: "🇬🇧 English", callback_data: "onboard_lang:en" }],
+        [{ text: "🇫🇷 Français", callback_data: "onboard_lang:fr" }],
       ]);
     return;
   }
@@ -609,6 +607,21 @@ export async function handleCallbackQuery(
   await answerCallback(callbackQueryId);
 
   // Onboarding
+  if (data.startsWith("onboard_lang:")) {
+    const lang = data.split(":")[1] as Lang;
+    await saveSettings(userId, { lang });
+    const l = lang;
+    await editMessage(chatId, messageId,
+      l === "fr"
+        ? "🏋️ <b>Cool Workout Bot</b>\n\nVeux-tu utiliser les séances par défaut (Push/Pull) ou créer les tiennes ?"
+        : "🏋️ <b>Cool Workout Bot</b>\n\nDo you want to use default workouts (Push/Pull) or create your own?",
+      [
+        [{ text: l === "fr" ? "✅ Utiliser les défauts" : "✅ Use Defaults", callback_data: "onboard_defaults" }],
+        [{ text: l === "fr" ? "✏️ Créer les miennes" : "✏️ Create My Own", callback_data: "onboard_custom" }],
+      ]);
+    return;
+  }
+
   if (data === "onboard_defaults") {
     await initDefaultTemplates(userId);
     await showMainMenu(chatId, userId, messageId);

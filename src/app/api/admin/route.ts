@@ -92,6 +92,13 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
 
+export async function PUT(request: NextRequest) {
+  const { uid, templates } = await request.json();
+  if (!uid || !templates) return NextResponse.json({ error: "uid and templates required" }, { status: 400 });
+  await redis.set(`templates:${uid}`, JSON.stringify(templates));
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(request: NextRequest) {
   const { key } = await request.json();
   if (!key) return NextResponse.json({ error: "key required" }, { status: 400 });

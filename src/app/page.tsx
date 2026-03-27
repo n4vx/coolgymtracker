@@ -67,6 +67,12 @@ export default function AdminDashboard() {
         >
           👥 Users
         </button>
+        <Link
+          href="/admin/workouts"
+          className="px-4 py-2 rounded-lg text-sm font-medium text-muted hover:text-foreground"
+        >
+          📝 Workouts
+        </Link>
         <button
           onClick={() => setTab("keys")}
           className={`px-4 py-2 rounded-lg text-sm font-medium ${

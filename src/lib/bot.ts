@@ -1,4 +1,4 @@
-import { redis, saveWorkout, getWorkout, getAllWorkouts } from "./kv";
+import { redis, saveWorkout, getWorkout, getAllWorkouts, deleteWorkout } from "./kv";
 import { getExercisesByType, getExerciseById } from "./exercises";
 import { Workout, SetEntry } from "./types";
 
@@ -293,9 +293,13 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
     text += `\n${typeEmoji} <b>${w.date}</b> — ${w.type.toUpperCase()} (${exerciseCount} exercice${exerciseCount > 1 ? "s" : ""})`;
   }
 
-  await editMessage(chatId, messageId, text, [
-    [{ text: "← Retour", callback_data: "menu" }],
-  ]);
+  const keyboard: unknown[][] = last5.map((w) => {
+    const typeEmoji = w.type === "push" ? "🔥" : w.type === "pull" ? "🧗" : "⚡";
+    return [{ text: `🗑 ${w.date} ${typeEmoji} ${w.type.toUpperCase()}`, callback_data: `delconfirm:${w.id}` }];
+  });
+  keyboard.push([{ text: "← Retour", callback_data: "menu" }]);
+
+  await editMessage(chatId, messageId, text, keyboard);
 }
 
 // --- Set input parsing ---
@@ -425,6 +429,36 @@ export async function handleCallbackQuery(
 
   if (data === "stats") {
     await handleStats(chatId, messageId, userId);
+    return;
+  }
+
+  if (data.startsWith("delconfirm:")) {
+    const workoutId = data.split(":")[1];
+    const workout = await getWorkout(workoutId, userId);
+    if (!workout) {
+      await handleStats(chatId, messageId, userId);
+      return;
+    }
+    const typeEmoji = workout.type === "push" ? "🔥" : workout.type === "pull" ? "🧗" : "⚡";
+    await editMessage(
+      chatId,
+      messageId,
+      `⚠️ Supprimer la séance <b>${typeEmoji} ${workout.type.toUpperCase()}</b> du <b>${workout.date}</b> ?`,
+      [
+        [{ text: "✅ Oui, supprimer", callback_data: `delworkout:${workoutId}` }],
+        [{ text: "← Annuler", callback_data: "stats" }],
+      ]
+    );
+    return;
+  }
+
+  if (data.startsWith("delworkout:")) {
+    const workoutId = data.split(":")[1];
+    await deleteWorkout(workoutId, userId);
+    await editMessage(chatId, messageId, "🗑 Séance supprimée.", [
+      [{ text: "📊 Stats", callback_data: "stats" }],
+      [{ text: "← Menu", callback_data: "menu" }],
+    ]);
     return;
   }
 }

@@ -1,5 +1,4 @@
 import { Workout } from "./types";
-import { getExerciseById } from "./exercises";
 
 export interface ProgressionPoint {
   date: string;
@@ -57,9 +56,9 @@ function formatDate(date: string): string {
 
 export async function renderProgressionChart(
   exerciseId: string,
-  points: ProgressionPoint[]
+  points: ProgressionPoint[],
+  exerciseName?: string
 ): Promise<Buffer> {
-  const exercise = getExerciseById(exerciseId);
   const config = {
     type: "line",
     data: {
@@ -82,7 +81,7 @@ export async function renderProgressionChart(
       plugins: {
         title: {
           display: true,
-          text: `${exercise?.name || exerciseId} - Progression`,
+          text: `${exerciseName || exerciseId} - Progression`,
           color: "#f4f4f5",
           font: { size: 18 },
         },
@@ -103,9 +102,9 @@ export async function renderProgressionChart(
 
 export async function renderRepsChart(
   exerciseId: string,
-  points: { date: string; maxReps: number }[]
+  points: { date: string; maxReps: number }[],
+  exerciseName?: string
 ): Promise<Buffer> {
-  const exercise = getExerciseById(exerciseId);
   const config = {
     type: "line",
     data: {
@@ -128,7 +127,7 @@ export async function renderRepsChart(
       plugins: {
         title: {
           display: true,
-          text: `${exercise?.name || exerciseId} - Progression Reps`,
+          text: `${exerciseName || exerciseId} - Progression Reps`,
           color: "#f4f4f5",
           font: { size: 18 },
         },

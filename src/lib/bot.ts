@@ -2,6 +2,7 @@ import { redis, saveWorkout, getWorkout, getAllWorkouts, deleteWorkout } from ".
 import { getExercisesByType, getExerciseById, PUSH_EXERCISES, PULL_EXERCISES } from "./exercises";
 import { Workout, SetEntry } from "./types";
 import { getExerciseProgression, getExerciseMaxReps, renderProgressionChart, renderRepsChart } from "./chart";
+import { t, Lang } from "./i18n";
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -76,6 +77,27 @@ async function clearState(userId: string): Promise<void> {
   await redis.del(`botstate:${userId}`);
 }
 
+// --- User settings ---
+
+interface UserSettings {
+  lang: Lang;
+}
+
+async function getSettings(userId: string): Promise<UserSettings> {
+  const data = await redis.get<string>(`settings:${userId}`);
+  if (!data) return { lang: "fr" };
+  return typeof data === "string" ? JSON.parse(data) : data;
+}
+
+async function saveSettings(userId: string, settings: UserSettings): Promise<void> {
+  await redis.set(`settings:${userId}`, JSON.stringify(settings));
+}
+
+async function getLang(userId: string): Promise<Lang> {
+  const s = await getSettings(userId);
+  return s.lang;
+}
+
 // --- Helpers ---
 
 function formatSets(sets: SetEntry[], bodyweight = false): string {
@@ -123,19 +145,22 @@ function exerciseView(exerciseId: string, sets: SetEntry[]): { text: string; key
 
 // --- Handlers ---
 
-export async function handleStart(chatId: number) {
-  await sendMessage(chatId, "🏋️ <b>Gym Tracker</b>\n\nQue veux-tu faire ?", [
-    [{ text: "💪 Nouvelle Séance", callback_data: "new_workout" }],
-    [{ text: "📊 Stats", callback_data: "stats" }],
+export async function handleStart(chatId: number, userId: string) {
+  const l = await getLang(userId);
+  await sendMessage(chatId, t("home_title", l), [
+    [{ text: t("btn_new_workout", l), callback_data: "new_workout" }],
+    [{ text: t("btn_stats", l), callback_data: "stats" }],
+    [{ text: t("btn_settings", l), callback_data: "settings" }],
   ]);
 }
 
-async function handleNewWorkout(chatId: number, messageId: number) {
-  await editMessage(chatId, messageId, "🏋️ <b>Choisis ton type de séance :</b>", [
+async function handleNewWorkout(chatId: number, messageId: number, userId: string) {
+  const l = await getLang(userId);
+  await editMessage(chatId, messageId, t("choose_type", l), [
     [{ text: "🔥 Push", callback_data: "type:push" }],
     [{ text: "🧗 Pull", callback_data: "type:pull" }],
-    [{ text: "⚡ Autre", callback_data: "type:other" }],
-    [{ text: "← Retour", callback_data: "menu" }],
+    [{ text: t("btn_other", l), callback_data: "type:other" }],
+    [{ text: t("btn_back", l), callback_data: "menu" }],
   ]);
 }
 
@@ -227,13 +252,13 @@ async function handleRemoveSet(chatId: number, messageId: number, userId: string
 async function handleExerciseDone(chatId: number, messageId: number, userId: string) {
   const state = await getState(userId);
   if (!state.workoutId || !state.workoutType) {
-    await handleStart(chatId);
+    await handleStart(chatId, userId);
     return;
   }
 
   const workout = await getWorkout(state.workoutId, userId);
   if (!workout) {
-    await handleStart(chatId);
+    await handleStart(chatId, userId);
     return;
   }
 
@@ -275,11 +300,12 @@ async function handleDone(chatId: number, messageId: number, userId: string) {
 }
 
 async function handleStats(chatId: number, messageId: number, userId: string) {
+  const l = await getLang(userId);
   const workouts = await getAllWorkouts(userId);
 
   if (workouts.length === 0) {
-    await editMessage(chatId, messageId, "📊 <b>Stats</b>\n\nAucune séance enregistrée.", [
-      [{ text: "← Retour", callback_data: "menu" }],
+    await editMessage(chatId, messageId, `📊 <b>Stats</b>\n\n${t("no_sessions", l)}`, [
+      [{ text: t("btn_back", l), callback_data: "menu" }],
     ]);
     return;
   }
@@ -292,17 +318,17 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
   const pullCount = recent.filter((w) => w.type === "pull").length;
   const otherCount = recent.filter((w) => w.type === "other").length;
 
-  let text = `📊 <b>Stats (30 derniers jours)</b>\n\n`;
-  text += `🏋️ Total : <b>${recent.length}</b> séances\n`;
+  let text = `📊 <b>${t("stats_title", l)}</b>\n\n`;
+  text += `🏋️ ${t("total", l)} : <b>${recent.length}</b> ${t("sessions", l)}\n`;
   text += `🔥 Push : <b>${pushCount}</b>\n`;
   text += `🧗 Pull : <b>${pullCount}</b>\n`;
-  if (otherCount > 0) text += `⚡ Autre : <b>${otherCount}</b>\n`;
+  if (otherCount > 0) text += `⚡ ${l === "fr" ? "Autre" : "Other"} : <b>${otherCount}</b>\n`;
 
   await editMessage(chatId, messageId, text, [
-    [{ text: "📈 Progression par exercice", callback_data: "exo_stats" }],
-    [{ text: "📋 Historique de séances", callback_data: "history" }],
-    [{ text: "✏️ Éditer les séances", callback_data: "edit_sessions" }],
-    [{ text: "← Retour", callback_data: "menu" }],
+    [{ text: t("btn_progression", l), callback_data: "exo_stats" }],
+    [{ text: t("btn_history", l), callback_data: "history" }],
+    [{ text: t("btn_edit_sessions", l), callback_data: "edit_sessions" }],
+    [{ text: t("btn_back", l), callback_data: "menu" }],
   ]);
 }
 
@@ -419,7 +445,7 @@ function parseSets(text: string, bodyweight = false): SetEntry[] | null {
 
 export async function handleTextMessage(chatId: number, userId: string, text: string) {
   if (text === "/start") {
-    await handleStart(chatId);
+    await handleStart(chatId, userId);
     return;
   }
 
@@ -475,15 +501,17 @@ export async function handleCallbackQuery(
 
   if (data === "menu") {
     await clearState(userId);
-    await editMessage(chatId, messageId, "🏋️ <b>Gym Tracker</b>\n\nQue veux-tu faire ?", [
-      [{ text: "💪 Nouvelle Séance", callback_data: "new_workout" }],
-      [{ text: "📊 Stats", callback_data: "stats" }],
+    const l = await getLang(userId);
+    await editMessage(chatId, messageId, t("home_title", l), [
+      [{ text: t("btn_new_workout", l), callback_data: "new_workout" }],
+      [{ text: t("btn_stats", l), callback_data: "stats" }],
+      [{ text: t("btn_settings", l), callback_data: "settings" }],
     ]);
     return;
   }
 
   if (data === "new_workout") {
-    await handleNewWorkout(chatId, messageId);
+    await handleNewWorkout(chatId, messageId, userId);
     return;
   }
 
@@ -592,6 +620,52 @@ export async function handleCallbackQuery(
 
   if (data === "edit_sessions") {
     await handleEditSessions(chatId, messageId, userId);
+    return;
+  }
+
+  if (data === "settings") {
+    const l = await getLang(userId);
+    await editMessage(chatId, messageId, `${t("settings_title", l)}\n\n${t("current_lang", l)}`, [
+      [{ text: t("btn_switch_lang", l), callback_data: "toggle_lang" }],
+      [{ text: t("btn_reset_history", l), callback_data: "reset_confirm" }],
+      [{ text: t("btn_menu", l), callback_data: "menu" }],
+    ]);
+    return;
+  }
+
+  if (data === "toggle_lang") {
+    const settings = await getSettings(userId);
+    settings.lang = settings.lang === "fr" ? "en" : "fr";
+    await saveSettings(userId, settings);
+    const l = settings.lang;
+    await editMessage(chatId, messageId, `${t("lang_changed", l)}\n\n${t("settings_title", l)}\n${t("current_lang", l)}`, [
+      [{ text: t("btn_switch_lang", l), callback_data: "toggle_lang" }],
+      [{ text: t("btn_reset_history", l), callback_data: "reset_confirm" }],
+      [{ text: t("btn_menu", l), callback_data: "menu" }],
+    ]);
+    return;
+  }
+
+  if (data === "reset_confirm") {
+    const l = await getLang(userId);
+    await editMessage(chatId, messageId, t("reset_confirm", l), [
+      [{ text: t("btn_yes_reset", l), callback_data: "reset_history" }],
+      [{ text: t("btn_cancel", l), callback_data: "settings" }],
+    ]);
+    return;
+  }
+
+  if (data === "reset_history") {
+    const workouts = await getAllWorkouts(userId);
+    for (const w of workouts) {
+      await deleteWorkout(w.id, userId);
+    }
+    await clearState(userId);
+    const l = await getLang(userId);
+    await editMessage(chatId, messageId, t("reset_done", l), [
+      [{ text: t("btn_settings", l), callback_data: "settings" }],
+      [{ text: t("btn_menu", l), callback_data: "menu" }],
+    ]);
     return;
   }
 

@@ -95,11 +95,13 @@ async function getLang(userId: string): Promise<Lang> {
 // --- User profile ---
 
 export async function saveUserProfile(userId: string, from: { first_name?: string; last_name?: string; username?: string }) {
+  const exists = await redis.exists(`profile:${userId}`);
+  if (exists) return;
   await redis.set(`profile:${userId}`, JSON.stringify({
     firstName: from.first_name || "",
     lastName: from.last_name || "",
     username: from.username || "",
-    lastSeen: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   }));
 }
 

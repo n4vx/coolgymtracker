@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         firstName: profile?.firstName || "",
         lastName: profile?.lastName || "",
         username: profile?.username || "",
-        lastSeen: profile?.lastSeen || null,
+        createdAt: profile?.createdAt || null,
         lang: settings?.lang || "fr",
         templateCount: Array.isArray(templates) ? templates.length : 0,
         workoutCount: workoutIds.length,

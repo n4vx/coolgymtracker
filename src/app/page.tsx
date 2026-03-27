@@ -8,7 +8,7 @@ interface UserInfo {
   firstName: string;
   lastName: string;
   username: string;
-  lastSeen: string | null;
+  createdAt: string | null;
   lang: string;
   templateCount: number;
   workoutCount: number;
@@ -96,7 +96,7 @@ export default function AdminDashboard() {
                     <div className="text-muted text-xs flex gap-2">
                       {user.username && <span>@{user.username}</span>}
                       <span>{user.lang === "fr" ? "🇫🇷" : "🇬🇧"}</span>
-                      {user.lastSeen && <span>Last seen {new Date(user.lastSeen).toLocaleDateString()}</span>}
+                      {user.createdAt && <span>Joined {new Date(user.createdAt).toLocaleDateString()}</span>}
                     </div>
                   </div>
                 </div>

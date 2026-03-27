@@ -17,8 +17,33 @@ interface Template {
   id: string;
   name: string;
   icon: string;
-  exercises: { id: string; name: string; icon: string; defaultSets: string; bodyweight?: boolean }[];
+  exercises: {
+    id: string;
+    name: string;
+    icon: string;
+    defaultSets: string;
+    mode?: "weight" | "bodyweight" | "time";
+    bodyweight?: boolean;
+  }[];
 }
+
+function getMode(exercise: Template["exercises"][number]): "weight" | "bodyweight" | "time" {
+  if (exercise.mode) return exercise.mode;
+  if (exercise.bodyweight) return "bodyweight";
+  return "weight";
+}
+
+const MODE_BADGES = {
+  weight: "WT",
+  bodyweight: "BW",
+  time: "TIME",
+} as const;
+
+const MODE_BADGE_STYLES = {
+  weight: "bg-emerald/20 text-emerald",
+  bodyweight: "bg-sky/20 text-sky",
+  time: "bg-orange/20 text-orange",
+} as const;
 
 export default function UserDetailPage() {
   const params = useParams();
@@ -88,7 +113,11 @@ export default function UserDetailPage() {
                   <div key={ex.id} className="text-sm text-muted flex items-center gap-2">
                     <span>{ex.icon}</span>
                     <span>{ex.name}</span>
-                    {ex.bodyweight && <span className="text-xs bg-sky/20 text-sky px-1.5 rounded">BW</span>}
+                    <span
+                      className={`text-xs px-1.5 rounded ${MODE_BADGE_STYLES[getMode(ex)]}`}
+                    >
+                      {MODE_BADGES[getMode(ex)]}
+                    </span>
                     <span className="text-xs text-muted ml-auto">{ex.defaultSets}</span>
                   </div>
                 ))}

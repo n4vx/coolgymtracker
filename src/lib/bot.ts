@@ -298,25 +298,101 @@ async function handleStats(chatId: number, messageId: number, userId: string) {
   text += `🧗 Pull : <b>${pullCount}</b>\n`;
   if (otherCount > 0) text += `⚡ Autre : <b>${otherCount}</b>\n`;
 
-  text += `\n<b>Dernières séances :</b>\n`;
+  await editMessage(chatId, messageId, text, [
+    [{ text: "📈 Progression par exercice", callback_data: "exo_stats" }],
+    [{ text: "📋 Historique de séances", callback_data: "history" }],
+    [{ text: "✏️ Éditer les séances", callback_data: "edit_sessions" }],
+    [{ text: "← Retour", callback_data: "menu" }],
+  ]);
+}
+
+async function handleHistory(chatId: number, messageId: number, userId: string) {
+  const workouts = await getAllWorkouts(userId);
   const last5 = workouts.slice(-5).reverse();
-  for (const w of last5) {
-    const typeEmoji = w.type === "push" ? "🔥" : w.type === "pull" ? "🧗" : "⚡";
-    const exerciseCount = w.exercises.length;
-    text += `\n${typeEmoji} <b>${w.date}</b> — ${w.type.toUpperCase()} (${exerciseCount} exercice${exerciseCount > 1 ? "s" : ""})`;
+
+  if (last5.length === 0) {
+    await editMessage(chatId, messageId, "📋 <b>Historique</b>\n\nAucune séance.", [
+      [{ text: "← Stats", callback_data: "stats" }],
+    ]);
+    return;
   }
 
-  const keyboard: unknown[][] = [
-    [{ text: "📈 Progression par exercice", callback_data: "exo_stats" }],
-  ];
-  const deleteButtons = last5.map((w) => {
+  let text = "📋 <b>Historique des séances</b>\n";
+
+  for (const w of last5) {
+    const typeEmoji = w.type === "push" ? "🔥" : w.type === "pull" ? "🧗" : "⚡";
+    text += `\n${typeEmoji} <b>${w.date} — ${w.type.toUpperCase()}</b>\n`;
+    if (w.exercises.length === 0) {
+      text += "  <i>Aucun exercice</i>\n";
+    } else {
+      for (const log of w.exercises) {
+        const ex = getExerciseById(log.exerciseId);
+        const bw = ex?.bodyweight ?? false;
+        const setsStr = log.sets
+          .map((s) => (bw ? `${s.reps}` : `${s.reps}×${s.weight}kg`))
+          .join(" · ");
+        text += `  ${ex?.icon || "•"} ${ex?.name || log.exerciseId}: ${setsStr}\n`;
+      }
+    }
+  }
+
+  const keyboard: unknown[][] = last5.map((w) => {
+    const typeEmoji = w.type === "push" ? "🔥" : w.type === "pull" ? "🧗" : "⚡";
+    return [{ text: `${typeEmoji} ${w.date} — détails`, callback_data: `workout_detail:${w.id}` }];
+  });
+  keyboard.push([{ text: "← Stats", callback_data: "stats" }]);
+
+  await editMessage(chatId, messageId, text, keyboard);
+}
+
+async function handleWorkoutDetail(chatId: number, messageId: number, userId: string, workoutId: string) {
+  const workout = await getWorkout(workoutId, userId);
+  if (!workout) {
+    await editMessage(chatId, messageId, "Séance introuvable.", [
+      [{ text: "← Historique", callback_data: "history" }],
+    ]);
+    return;
+  }
+
+  const typeEmoji = workout.type === "push" ? "🔥" : workout.type === "pull" ? "🧗" : "⚡";
+  let text = `${typeEmoji} <b>${workout.type.toUpperCase()}</b> — ${workout.date}\n\n`;
+
+  if (workout.exercises.length === 0) {
+    text += "<i>Aucun exercice enregistré</i>";
+  } else {
+    for (const log of workout.exercises) {
+      const ex = getExerciseById(log.exerciseId);
+      const bw = ex?.bodyweight ?? false;
+      text += `${ex?.icon || "•"} <b>${ex?.name || log.exerciseId}</b>\n`;
+      text += formatSets(log.sets, bw);
+      text += "\n\n";
+    }
+  }
+
+  await editMessage(chatId, messageId, text, [
+    [{ text: "← Historique", callback_data: "history" }],
+    [{ text: "← Stats", callback_data: "stats" }],
+  ]);
+}
+
+async function handleEditSessions(chatId: number, messageId: number, userId: string) {
+  const workouts = await getAllWorkouts(userId);
+  const last10 = workouts.slice(-10).reverse();
+
+  if (last10.length === 0) {
+    await editMessage(chatId, messageId, "✏️ <b>Éditer</b>\n\nAucune séance.", [
+      [{ text: "← Stats", callback_data: "stats" }],
+    ]);
+    return;
+  }
+
+  const keyboard: unknown[][] = last10.map((w) => {
     const typeEmoji = w.type === "push" ? "🔥" : w.type === "pull" ? "🧗" : "⚡";
     return [{ text: `🗑 ${w.date} ${typeEmoji} ${w.type.toUpperCase()}`, callback_data: `delconfirm:${w.id}` }];
   });
-  keyboard.push(...deleteButtons);
-  keyboard.push([{ text: "← Retour", callback_data: "menu" }]);
+  keyboard.push([{ text: "← Stats", callback_data: "stats" }]);
 
-  await editMessage(chatId, messageId, text, keyboard);
+  await editMessage(chatId, messageId, "✏️ <b>Éditer les séances</b>\n\nSélectionne une séance à supprimer :", keyboard);
 }
 
 // --- Set input parsing ---
@@ -503,6 +579,22 @@ export async function handleCallbackQuery(
     return;
   }
 
+  if (data === "history") {
+    await handleHistory(chatId, messageId, userId);
+    return;
+  }
+
+  if (data.startsWith("workout_detail:")) {
+    const workoutId = data.split(":")[1];
+    await handleWorkoutDetail(chatId, messageId, userId, workoutId);
+    return;
+  }
+
+  if (data === "edit_sessions") {
+    await handleEditSessions(chatId, messageId, userId);
+    return;
+  }
+
   if (data.startsWith("delconfirm:")) {
     const workoutId = data.split(":")[1];
     const workout = await getWorkout(workoutId, userId);
@@ -517,7 +609,7 @@ export async function handleCallbackQuery(
       `⚠️ Supprimer la séance <b>${typeEmoji} ${workout.type.toUpperCase()}</b> du <b>${workout.date}</b> ?`,
       [
         [{ text: "✅ Oui, supprimer", callback_data: `delworkout:${workoutId}` }],
-        [{ text: "← Annuler", callback_data: "stats" }],
+        [{ text: "← Annuler", callback_data: "edit_sessions" }],
       ]
     );
     return;
@@ -527,8 +619,8 @@ export async function handleCallbackQuery(
     const workoutId = data.split(":")[1];
     await deleteWorkout(workoutId, userId);
     await editMessage(chatId, messageId, "🗑 Séance supprimée.", [
+      [{ text: "✏️ Éditer les séances", callback_data: "edit_sessions" }],
       [{ text: "📊 Stats", callback_data: "stats" }],
-      [{ text: "← Menu", callback_data: "menu" }],
     ]);
     return;
   }

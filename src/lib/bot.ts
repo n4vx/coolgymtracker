@@ -488,9 +488,12 @@ async function showTemplateDetail(chatId: number, messageId: number, userId: str
   }
 
   const keyboard: unknown[][] = [];
-  // Remove buttons per exercise
+  const modeLabels = { weight: "🏋️", bodyweight: "🏃", time: "⏱" };
   for (const ex of tmpl.exercises) {
-    keyboard.push([{ text: `🗑 ${ex.name}`, callback_data: `rm_exo:${templateId}:${ex.id}` }]);
+    keyboard.push([
+      { text: `${modeLabels[getMode(ex)]} ${ex.name}`, callback_data: `toggle_mode:${templateId}:${ex.id}` },
+      { text: "🗑", callback_data: `rm_exo:${templateId}:${ex.id}` },
+    ]);
   }
   keyboard.push([{ text: l === "fr" ? "➕ Ajouter un exercice" : "➕ Add Exercise", callback_data: `add_exo:${templateId}` }]);
   keyboard.push([{ text: `🗑 ${l === "fr" ? "Supprimer cette séance" : "Delete this workout"}`, callback_data: `del_tmpl:${templateId}` }]);

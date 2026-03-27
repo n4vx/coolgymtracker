@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleStart, handleTextMessage, handleCallbackQuery, saveUserProfile } from "@/lib/bot";
 
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+
 export async function POST(request: NextRequest) {
+  // Verify Telegram secret token
+  if (WEBHOOK_SECRET) {
+    const token = request.headers.get("x-telegram-bot-api-secret-token");
+    if (token !== WEBHOOK_SECRET) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+  }
+
   try {
     const update = await request.json();
 

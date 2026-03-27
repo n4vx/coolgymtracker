@@ -6,34 +6,41 @@ const redis = new Redis({
   token: process.env.KV_REST_API_TOKEN!,
 });
 
-const WORKOUT_PREFIX = "workout:";
-const WORKOUTS_INDEX = "workouts:index";
+export { redis };
 
-export async function saveWorkout(workout: Workout): Promise<void> {
-  await redis.set(`${WORKOUT_PREFIX}${workout.id}`, JSON.stringify(workout));
-  await redis.zadd(WORKOUTS_INDEX, {
+function workoutKey(userId: string, id: string) {
+  return `workout:${userId}:${id}`;
+}
+
+function indexKey(userId: string) {
+  return `workouts:index:${userId}`;
+}
+
+export async function saveWorkout(workout: Workout, userId = "default"): Promise<void> {
+  await redis.set(workoutKey(userId, workout.id), JSON.stringify(workout));
+  await redis.zadd(indexKey(userId), {
     score: new Date(workout.date).getTime(),
     member: workout.id,
   });
 }
 
-export async function getWorkout(id: string): Promise<Workout | null> {
-  const data = await redis.get<string>(`${WORKOUT_PREFIX}${id}`);
+export async function getWorkout(id: string, userId = "default"): Promise<Workout | null> {
+  const data = await redis.get<string>(workoutKey(userId, id));
   if (!data) return null;
   return typeof data === "string" ? JSON.parse(data) : data;
 }
 
-export async function getAllWorkouts(): Promise<Workout[]> {
-  const ids = await redis.zrange<string[]>(WORKOUTS_INDEX, 0, -1);
+export async function getAllWorkouts(userId = "default"): Promise<Workout[]> {
+  const ids = await redis.zrange<string[]>(indexKey(userId), 0, -1);
   if (!ids.length) return [];
 
   const workouts = await Promise.all(
-    ids.map((id) => getWorkout(id))
+    ids.map((id) => getWorkout(id, userId))
   );
   return workouts.filter((w): w is Workout => w !== null);
 }
 
-export async function deleteWorkout(id: string): Promise<void> {
-  await redis.del(`${WORKOUT_PREFIX}${id}`);
-  await redis.zrem(WORKOUTS_INDEX, id);
+export async function deleteWorkout(id: string, userId = "default"): Promise<void> {
+  await redis.del(workoutKey(userId, id));
+  await redis.zrem(indexKey(userId), id);
 }

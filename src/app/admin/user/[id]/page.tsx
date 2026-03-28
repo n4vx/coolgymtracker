@@ -45,6 +45,19 @@ const MODE_BADGE_STYLES = {
   time: "bg-orange/20 text-orange",
 } as const;
 
+async function readJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message =
+      typeof data?.error === "string" ? data.error : `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 export default function UserDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -54,20 +67,36 @@ export default function UserDetailPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     Promise.all([
-      fetch(`/api/admin?action=user_workouts&uid=${userId}`).then((r) => r.json()),
-      fetch(`/api/admin?action=get_key&key=templates:${userId}`).then((r) => r.json()),
-      fetch(`/api/admin?action=get_key&key=settings:${userId}`).then((r) => r.json()),
-    ]).then(([wData, tData, sData]) => {
-      setWorkouts(wData.workouts || []);
-      const tVal = tData.value;
-      setTemplates(tVal ? (typeof tVal === "string" ? JSON.parse(tVal) : tVal) : []);
-      const sVal = sData.value;
-      setSettings(sVal ? (typeof sVal === "string" ? JSON.parse(sVal) : sVal) : null);
-      setLoading(false);
-    });
+      readJson<{ workouts?: Workout[] }>(`/api/admin?action=user_workouts&uid=${userId}`),
+      readJson<{ value?: Template[] | string }>(`/api/admin?action=get_key&key=templates:${userId}`),
+      readJson<{ value?: Record<string, unknown> | string }>(`/api/admin?action=get_key&key=settings:${userId}`),
+    ])
+      .then(([wData, tData, sData]) => {
+        if (cancelled) return;
+        setWorkouts(wData.workouts || []);
+        const tVal = tData.value;
+        setTemplates(tVal ? (typeof tVal === "string" ? JSON.parse(tVal) : tVal) : []);
+        const sVal = sData.value;
+        setSettings(sVal ? (typeof sVal === "string" ? JSON.parse(sVal) : sVal) : null);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load this user.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   function getExerciseName(exerciseId: string): string {
@@ -85,6 +114,28 @@ export default function UserDetailPage() {
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-[60vh] text-muted">Loading...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.push("/")} className="text-2xl p-1">←</button>
+          <div>
+            <h1 className="text-xl font-bold">👤 User {userId}</h1>
+          </div>
+        </div>
+        <div className="rounded-xl border border-card-border bg-card p-6">
+          <p className="text-sm text-muted">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg bg-emerald px-4 py-2 text-sm font-medium text-white"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

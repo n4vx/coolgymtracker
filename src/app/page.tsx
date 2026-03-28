@@ -15,27 +15,73 @@ interface UserInfo {
   templates: { id: string; name: string; icon: string; exercises: { id: string; name: string }[] }[];
 }
 
+async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message =
+      typeof data?.error === "string" ? data.error : `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 export default function AdminDashboard() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [keys, setKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"users" | "keys">("users");
 
   useEffect(() => {
+    let cancelled = false;
+
     Promise.all([
-      fetch("/api/admin?action=users").then((r) => r.json()),
-      fetch("/api/admin?action=keys").then((r) => r.json()),
-    ]).then(([usersData, keysData]) => {
-      setUsers(usersData.users || []);
-      setKeys(keysData.keys || []);
-      setLoading(false);
-    });
+      readJson<{ users?: UserInfo[] }>("/api/admin?action=users"),
+      readJson<{ keys?: string[] }>("/api/admin?action=keys"),
+    ])
+      .then(([usersData, keysData]) => {
+        if (cancelled) return;
+        setUsers(usersData.users || []);
+        setKeys(keysData.keys || []);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load the admin dashboard.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh] text-muted">
         Loading...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="max-w-lg rounded-xl border border-card-border bg-card p-6 text-center">
+          <h1 className="text-xl font-semibold mb-2">Admin dashboard unavailable</h1>
+          <p className="text-sm text-muted">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg bg-emerald px-4 py-2 text-sm font-medium text-white"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

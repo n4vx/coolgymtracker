@@ -37,6 +37,19 @@ const MODE_LABELS: Record<ExerciseMode, string> = {
 
 const MODES: ExerciseMode[] = ["weight", "bodyweight", "time"];
 
+async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message =
+      typeof data?.error === "string" ? data.error : `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 function getMode(ex: ExerciseTemplate): ExerciseMode {
   if (ex.mode) return ex.mode;
   if (ex.bodyweight) return "bodyweight";
@@ -51,16 +64,23 @@ export default function WorkoutsAdminPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/admin?action=users")
-      .then((r) => r.json())
+    readJson<{ users?: UserInfo[] }>("/api/admin?action=users")
       .then((data) => {
-        setUsers(data.users || []);
-        if (data.users?.length > 0) {
-          setSelectedUser(data.users[0].id);
-          setTemplates(data.users[0].templates || []);
+        const usersList = data.users || [];
+        setUsers(usersList);
+        if (usersList.length > 0) {
+          setSelectedUser(usersList[0].id);
+          setTemplates(usersList[0].templates || []);
         }
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Failed to load workout templates.");
+      })
+      .finally(() => {
         setLoading(false);
       });
   }, []);
@@ -75,15 +95,20 @@ export default function WorkoutsAdminPage() {
   async function save() {
     if (!selectedUser) return;
     setSaving(true);
-    await fetch("/api/admin", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: selectedUser, templates }),
-    });
-    setSaving(false);
-    setDirty(false);
-    // Update local users state
-    setUsers(users.map((u) => u.id === selectedUser ? { ...u, templates } : u));
+    try {
+      await readJson("/api/admin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: selectedUser, templates }),
+      });
+      setDirty(false);
+      setError(null);
+      setUsers(users.map((u) => u.id === selectedUser ? { ...u, templates } : u));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save workout templates.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function updateExercise(tmplIdx: number, exIdx: number, field: string, value: string) {
@@ -147,6 +172,26 @@ export default function WorkoutsAdminPage() {
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-[60vh] text-muted">Loading...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.push("/")} className="text-2xl p-1">←</button>
+          <h1 className="text-xl font-bold">📝 Workout Templates</h1>
+        </div>
+        <div className="rounded-xl border border-card-border bg-card p-6">
+          <p className="text-sm text-muted">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg bg-emerald px-4 py-2 text-sm font-medium text-white"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
